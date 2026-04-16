@@ -49,6 +49,27 @@ export async function getPendingSuppliers(): Promise<LocalSupplier[]> {
   return db.suppliers.where('syncStatus').equals('pending').toArray();
 }
 
+export async function getSuppliersWithPendingAI(): Promise<LocalSupplier[]> {
+  // Find synced suppliers that still have unprocessed AI items
+  const photosNeedingOCR = await db.photos
+    .filter(p => p.syncStatus === 'synced' && p.tag === 'business_card' && !p.ocrProcessed && !!p.remotePath)
+    .toArray();
+  const notesNeedingAI = await db.voiceNotes
+    .filter(n => n.syncStatus === 'synced' && !n.aiProcessed && !!n.transcription && !!n.remotePath)
+    .toArray();
+
+  const supplierIds = new Set([
+    ...photosNeedingOCR.map(p => p.supplierLocalId),
+    ...notesNeedingAI.map(n => n.supplierLocalId),
+  ]);
+
+  if (supplierIds.size === 0) return [];
+
+  return db.suppliers
+    .filter(s => s.syncStatus === 'synced' && supplierIds.has(s.localId))
+    .toArray();
+}
+
 export async function getSuppliersByCategory(category: string): Promise<LocalSupplier[]> {
   return db.suppliers
     .filter(s => s.categories.includes(category as LocalSupplier['categories'][number]))

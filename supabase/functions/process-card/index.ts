@@ -53,9 +53,15 @@ Deno.serve(async (req) => {
       throw new Error(`Failed to download image: ${downloadError.message}`);
     }
 
-    // Convert to base64
+    // Convert to base64 using chunked encoding to avoid call stack overflow
     const arrayBuffer = await imageData.arrayBuffer();
-    const base64Image = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+    const uint8Array = new Uint8Array(arrayBuffer);
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < uint8Array.length; i += chunkSize) {
+      binary += String.fromCharCode(...uint8Array.slice(i, i + chunkSize));
+    }
+    const base64Image = btoa(binary);
     const mimeType = imageData.type || "image/jpeg";
 
     // Call Claude API for OCR
@@ -69,7 +75,7 @@ Deno.serve(async (req) => {
       headers: {
         "Content-Type": "application/json",
         "x-api-key": anthropicApiKey,
-        "anthropic-version": "2023-06-01",
+        "anthropic-version": "2024-10-22",
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",

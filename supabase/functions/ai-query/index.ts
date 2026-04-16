@@ -67,7 +67,7 @@ Format your responses in clear, scannable bullet points or tables when comparing
       headers: {
         "Content-Type": "application/json",
         "x-api-key": anthropicApiKey,
-        "anthropic-version": "2023-06-01",
+        "anthropic-version": "2024-10-22",
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
