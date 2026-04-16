@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { useAppStore } from '@/lib/store';
 import { useToastStore } from '@/lib/store';
-import { db, getPendingSuppliers, getPhotosBySupplier, getVoiceNotesBySupplier } from '@/lib/db';
+import { db, getPendingSuppliers, getSuppliersWithPendingAI, getPhotosBySupplier, getVoiceNotesBySupplier } from '@/lib/db';
 import {
   getSupabase,
   uploadPhoto,
@@ -66,6 +66,13 @@ export function useSync() {
             }
           }
         }
+        // Also retry already-synced business card photos that failed AI processing
+        if (photo.syncStatus === 'synced' && photo.tag === 'business_card' && !photo.ocrProcessed && photo.remotePath) {
+          const alreadyQueued = businessCardPhotos.some(p => p.localId === photo.localId);
+          if (!alreadyQueued) {
+            businessCardPhotos.push({ localId: photo.localId, remotePath: photo.remotePath });
+          }
+        }
       }
 
       // 2. Upload voice notes
@@ -85,6 +92,13 @@ export function useSync() {
             if (note.transcription && !note.aiProcessed) {
               unprocessedVoiceNotes.push({ localId: note.localId, transcription: note.transcription });
             }
+          }
+        }
+        // Also retry already-synced voice notes that failed AI processing
+        if (note.syncStatus === 'synced' && !note.aiProcessed && note.transcription && note.remotePath) {
+          const alreadyQueued = unprocessedVoiceNotes.some(n => n.localId === note.localId);
+          if (!alreadyQueued) {
+            unprocessedVoiceNotes.push({ localId: note.localId, transcription: note.transcription });
           }
         }
       }
@@ -165,40 +179,54 @@ export function useSync() {
         }
 
         // 6. Trigger AI processing for business card photos (OCR)
-        for (const photo of businessCardPhotos) {
-          try {
-            const result = await callProcessCard(
-              photo.localId,
-              photo.remotePath,
-              supplier.localId
-            );
-            if (result?.success) {
-              await db.photos.update(photo.localId, {
-                ocrProcessed: true,
-                ocrResult: result.ocr_result || {},
+        // Skip if device went offline during sync
+        if (isOnline && businessCardPhotos.length > 0) {
+          for (const photo of businessCardPhotos) {
+            try {
+              const result = await callProcessCard(
+                photo.localId,
+                photo.remotePath,
+                supplier.localId
+              );
+              if (result?.success && result.ocr_result) {
+                await db.photos.update(photo.localId, {
+                  ocrProcessed: true,
+                  ocrResult: result.ocr_result,
+                });
+              }
+            } catch (err) {
+              console.error('OCR processing failed for photo:', photo.localId, err);
+              addToast({
+                type: 'warning',
+                message: 'Business card OCR failed - will retry next sync',
               });
             }
-          } catch (err) {
-            console.error('OCR processing failed for photo:', photo.localId, err);
           }
         }
 
         // 7. Trigger AI processing for voice notes
-        for (const note of unprocessedVoiceNotes) {
-          try {
-            const result = await callProcessVoice(
-              note.localId,
-              note.transcription,
-              supplier.localId
-            );
-            if (result?.success) {
-              await db.voiceNotes.update(note.localId, {
-                aiProcessed: true,
-                structuredData: result.structured_data || {},
+        // Skip if device went offline during sync
+        if (isOnline && unprocessedVoiceNotes.length > 0) {
+          for (const note of unprocessedVoiceNotes) {
+            try {
+              const result = await callProcessVoice(
+                note.localId,
+                note.transcription,
+                supplier.localId
+              );
+              if (result?.success && result.structured_data) {
+                await db.voiceNotes.update(note.localId, {
+                  aiProcessed: true,
+                  structuredData: result.structured_data,
+                });
+              }
+            } catch (err) {
+              console.error('Voice processing failed for note:', note.localId, err);
+              addToast({
+                type: 'warning',
+                message: 'Voice note AI processing failed - will retry next sync',
               });
             }
-          } catch (err) {
-            console.error('Voice processing failed for note:', note.localId, err);
           }
         }
 
@@ -213,22 +241,34 @@ export function useSync() {
       });
       return false;
     }
-  }, []);
+  }, [isOnline, addToast]);
 
-  // Sync all pending data
+  // Sync all pending data and retry failed AI processing
   const syncAll = useCallback(async () => {
     const supabase = getSupabase();
     if (!supabase || isSyncing) return;
 
     const pending = await getPendingSuppliers();
-    if (pending.length === 0) return;
+    const aiRetry = await getSuppliersWithPendingAI();
+
+    // Deduplicate (a supplier could be both pending and needing AI retry)
+    const seenIds = new Set<string>();
+    const allToSync: LocalSupplier[] = [];
+    for (const s of [...pending, ...aiRetry]) {
+      if (!seenIds.has(s.localId)) {
+        seenIds.add(s.localId);
+        allToSync.push(s);
+      }
+    }
+
+    if (allToSync.length === 0) return;
 
     setIsSyncing(true);
 
     let successCount = 0;
     let errorCount = 0;
 
-    for (const supplier of pending) {
+    for (const supplier of allToSync) {
       const success = await syncSupplier(supplier);
       if (success) {
         successCount++;

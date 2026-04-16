@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
       headers: {
         "Content-Type": "application/json",
         "x-api-key": anthropicApiKey,
-        "anthropic-version": "2023-06-01",
+        "anthropic-version": "2024-10-22",
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
@@ -180,7 +180,7 @@ Sentiment should be positive, neutral, or negative based on overall impression.`
             ...existingPricing,
             quotes: [...(existingPricing.quotes || []), ...newQuotes],
             lead_time_days: structuredData.lead_time_mentioned
-              ? parseInt(structuredData.lead_time_mentioned) || null
+              ? (() => { const m = String(structuredData.lead_time_mentioned).match(/\d+/); return m ? parseInt(m[0]) : null; })()
               : existingPricing.lead_time_days,
           };
         }

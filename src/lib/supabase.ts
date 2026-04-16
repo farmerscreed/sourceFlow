@@ -219,25 +219,20 @@ export async function callProcessCard(
   const client = getSupabase();
   if (!client) return null;
 
-  try {
-    const { data, error } = await client.functions.invoke('process-card', {
-      body: {
-        photo_local_id: photoLocalId,
-        photo_storage_path: photoStoragePath,
-        supplier_local_id: supplierLocalId,
-      },
-    });
+  const { data, error } = await client.functions.invoke('process-card', {
+    body: {
+      photo_local_id: photoLocalId,
+      photo_storage_path: photoStoragePath,
+      supplier_local_id: supplierLocalId,
+    },
+  });
 
-    if (error) {
-      console.error('Process card error:', error);
-      return null;
-    }
-
-    return data;
-  } catch (err) {
-    console.error('Process card exception:', err);
-    return null;
+  if (error) {
+    console.error('Process card error:', error);
+    throw new Error(error.message || 'Business card OCR failed');
   }
+
+  return data;
 }
 
 /**
@@ -251,25 +246,20 @@ export async function callProcessVoice(
   const client = getSupabase();
   if (!client) return null;
 
-  try {
-    const { data, error } = await client.functions.invoke('process-voice', {
-      body: {
-        voice_note_local_id: voiceNoteLocalId,
-        transcription,
-        supplier_local_id: supplierLocalId,
-      },
-    });
+  const { data, error } = await client.functions.invoke('process-voice', {
+    body: {
+      voice_note_local_id: voiceNoteLocalId,
+      transcription,
+      supplier_local_id: supplierLocalId,
+    },
+  });
 
-    if (error) {
-      console.error('Process voice error:', error);
-      return null;
-    }
-
-    return data;
-  } catch (err) {
-    console.error('Process voice exception:', err);
-    return null;
+  if (error) {
+    console.error('Process voice error:', error);
+    throw new Error(error.message || 'Voice note processing failed');
   }
+
+  return data;
 }
 
 /**
@@ -283,23 +273,18 @@ export async function callAIQuery(
   const client = getSupabase();
   if (!client) return null;
 
-  try {
-    const { data, error } = await client.functions.invoke('ai-query', {
-      body: {
-        question,
-        supplier_data: supplierData,
-        context,
-      },
-    });
+  const { data, error } = await client.functions.invoke('ai-query', {
+    body: {
+      question,
+      supplier_data: supplierData,
+      context,
+    },
+  });
 
-    if (error) {
-      console.error('AI query error:', error);
-      return null;
-    }
-
-    return data?.answer || null;
-  } catch (err) {
-    console.error('AI query exception:', err);
-    return null;
+  if (error) {
+    console.error('AI query error:', error);
+    throw new Error(error.message || 'AI query failed');
   }
+
+  return data?.answer ?? null;
 }
